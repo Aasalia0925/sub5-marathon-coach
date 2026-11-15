@@ -1,0 +1,34 @@
+name: 서브5 코치 알림
+
+on:
+  schedule:
+    - cron: "0 20 * * *"   # 매일 05:00 KST (UTC 20:00) 아침 준비도
+    - cron: "0 11 * * 0"   # 일요일 20:00 KST (UTC 11:00) 주간 리포트
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "보낼 알림"
+        required: true
+        default: morning
+        type: choice
+        options: [morning, weekly]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 알림 보내기
+        env:
+          INTERVALS_API_KEY: ${{ secrets.INTERVALS_API_KEY }}
+          INTERVALS_ATHLETE_ID: ${{ secrets.INTERVALS_ATHLETE_ID }}
+          SLACK_WEBHOOK_URL: ${{ secrets.SLACK_WEBHOOK_URL }}
+          EVENT_NAME: ${{ github.event_name }}
+          EVENT_SCHEDULE: ${{ github.event.schedule }}
+          INPUT_MODE: ${{ inputs.mode }}
+        run: |
+          if [ "$EVENT_NAME" = "workflow_dispatch" ]; then MODE="$INPUT_MODE"
+          elif [ "$EVENT_SCHEDULE" = "0 11 * * 0" ]; then MODE=weekly
+          else MODE=morning; fi
+          python3 coach.py "$MODE"
