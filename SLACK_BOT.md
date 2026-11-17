@@ -1,11 +1,12 @@
 # Slack 알림 봇 + 클라우드 자동 실행
 
-매일 아침 "오늘 뛰어도 되는지"와 매주 일요일 리포트를 **휴대폰 Slack 알림**으로 받는 방법입니다. 맥이 꺼져 있어도 동작하도록 **GitHub Actions**(GitHub의 무료 클라우드 실행)에서 돌립니다.
+매일 아침 "오늘 뛰어도 되는지"와 매주 일요일 리포트를 **휴대폰 Slack 알림**으로 받는 방법입니다. 맥이 꺼져 있어도 동작하도록 **GitHub Actions**(GitHub의 무료 클라우드 실행)에서 돌리고, 정각에 실행되도록 **cron-job.org**가 실행 신호를 보냅니다.
 
 ```mermaid
 flowchart LR
     G[Garmin 워치] --> I[intervals.icu]
-    GA[GitHub Actions<br/>매일 05:00 · 일요일 20:00] -- API 읽기 --> I
+    CJ[cron-job.org<br/>매일 05:00 · 일요일 20:00] -- 정각 실행 신호 --> GA[GitHub Actions]
+    GA -- API 읽기 --> I
     GA -- 웹훅 --> S[Slack 채널<br/>서브5 코치 봇]
     S -- 푸시 알림 --> P[휴대폰]
     M[맥의 Claude<br/>일요일 계획 조정] -- 캘린더 수정 --> I
@@ -14,8 +15,8 @@ flowchart LR
 
 | 알림 | 시간 (한국) | 어디서 | 내용 |
 |---|---|---|---|
-| ☀️ 아침 준비도 | 매일 05:00 전후 | GitHub Actions | 오늘 운동, HRV·안정시 심박·수면 vs 평소, 판단과 오늘 할 일 |
-| 📋 주간 리포트 | 일요일 20:00 전후 | GitHub Actions | 지난주 완료·부하·ACWR, 회복 지표, 경고, 다음 주 계획 |
+| ☀️ 아침 준비도 | 매일 05:00 | cron-job.org → GitHub Actions | 오늘 운동, HRV·안정시 심박·수면 vs 평소, 판단과 오늘 할 일 |
+| 📋 주간 리포트 | 일요일 20:00 | cron-job.org → GitHub Actions | 지난주 완료·부하·ACWR, 회복 지표, 경고, 다음 주 계획 |
 | 🛠 계획 조정 알림 | 일요일 20:00 (맥을 켤 때) | 맥의 Claude | 다음 주 운동을 실제로 바꿨을 때만 |
 
 ---
@@ -26,6 +27,7 @@ flowchart LR
 |---|---|---|
 | Claude의 Slack 연결로 내 DM에 보내기 | **내 계정이 나에게 보내는 메시지라 푸시 알림이 안 울림** | Slack 앱(봇)의 Incoming Webhook으로 보내기 |
 | 맥의 Claude 예약 작업으로 매일 알림 | **맥이 꺼져 있으면 실행 안 됨** (켤 때 늦게 실행) | GitHub Actions에서 실행 |
+| GitHub Actions 자체 예약(schedule) | **3~6시간 늦게 실행됨** (05:00 알림이 08:38, 11:41에 옴) | cron-job.org가 정각에 실행 신호를 보냄 |
 | 계획 조정까지 클라우드로 | 규칙만으로 캘린더를 고치는 건 위험 | 조정은 맥의 Claude가 맥락을 보고 하도록 유지 |
 
 아침 판단은 규칙이 정해져 있어서 AI 없이 코드만으로 충분합니다. 그래서 클라우드 쪽에는 Claude API 비용이 들지 않습니다.
@@ -137,6 +139,80 @@ Slack에 "서브5 코치" 이름으로 메시지가 오면 성공입니다.
 
 ---
 
+## 5. 정각에 실행하기 (cron-job.org)
+
+GitHub Actions 자체 예약(`schedule`)은 **정해진 시간에 실행된다는 보장이 없습니다.** 실제로 05:00 예약이 **3시간 38분, 6시간 41분** 늦게 실행되어 아침 알림이 08:38, 11:41에 왔습니다.
+
+그래서 GitHub 예약은 끄고, 무료 예약 서비스 **cron-job.org**가 정각에 GitHub에 "지금 실행해" 신호(workflow_dispatch)를 보내게 했습니다. 신호를 받으면 GitHub는 바로 실행해서 1~2분 안에 Slack에 도착합니다.
+
+```mermaid
+flowchart LR
+    CJ[cron-job.org<br/>정각 신호] -- POST workflow_dispatch --> GA[GitHub Actions]
+    GA --> S[Slack 봇 알림]
+```
+
+### 5-1. cron-job.org 가입
+
+https://console.cron-job.org/signup 에서 무료로 가입하고 메일 인증을 합니다.
+
+### 5-2. GitHub 토큰 만들기 (실행 신호용 열쇠)
+
+1. https://github.com/settings/personal-access-tokens/new
+   (메뉴: 프로필 사진 → Settings → 맨 아래 Developer settings → Personal access tokens → **Fine-grained tokens** → Generate new token)
+2. **Token name:** `sub5-coach-trigger`
+3. **Expiration:** Custom → 레이스 이후 날짜 (예: 2027-03-31)
+4. **Repository access:** Only select repositories → `sub5-coach-bot`
+5. **Permissions → Repository permissions → Actions:** `Read and write` (다른 권한은 그대로)
+6. **Generate token** → 화면에 한 번만 보이는 토큰을 복사. 채팅이나 GitHub에 붙여 넣지 않습니다.
+
+### 5-3. cron-job.org에 예약 만들기
+
+**CREATE CRONJOB**에서 아래처럼 만듭니다.
+
+| 항목 | 아침 준비도 | 주간 리포트 |
+|---|---|---|
+| Title | `서브5 아침 준비도` | `서브5 주간 리포트` |
+| URL | 아래 주소 | 아래 주소 (같음) |
+| Execution schedule | **Every day at** 05:00 (원하는 시간) | **Custom** → Days of week: Sunday만, Hours: 20, Minutes: 0 |
+| Time zone | **Asia/Seoul** | **Asia/Seoul** |
+| Request method (ADVANCED 탭) | POST | POST |
+| Request body | `{"ref":"main","inputs":{"mode":"morning"}}` | `{"ref":"main","inputs":{"mode":"weekly"}}` |
+
+```text
+https://api.github.com/repos/<내 GitHub ID>/sub5-coach-bot/actions/workflows/coach.yml/dispatches
+```
+
+Headers (ADVANCED 탭 → ADD, 두 예약 모두 같음):
+
+| Key | Value |
+|---|---|
+| `Accept` | `application/vnd.github+json` |
+| `Authorization` | `Bearer <5-2에서 복사한 토큰>` (Bearer 뒤 띄어쓰기 한 칸) |
+| `X-GitHub-Api-Version` | `2022-11-28` |
+| `Content-Type` | `application/json` |
+
+> 💡 아침 예약을 만든 뒤 **Clone**(복제)해서 제목·시간·Request body만 바꾸면 주간 예약이 빠릅니다.
+> 💡 **"Every week" 옵션은 없습니다.** 매주 실행은 **Custom**에서 요일을 고릅니다.
+> ⚠️ Time zone을 Asia/Seoul로 바꾸지 않으면 다른 나라 시간으로 실행됩니다.
+
+### 5-4. 테스트
+
+예약 화면의 **TEST RUN → START TEST RUN**을 누릅니다. 결과가 **204**면 성공이고, 1~2분 안에 Slack 알림이 옵니다.
+
+| 결과 | 뜻 |
+|---|---|
+| 204 | 성공 |
+| 401 | 토큰이 틀렸거나 `Bearer ` 띄어쓰기 누락 |
+| 403 | 토큰에 Actions 쓰기 권한이 없음 |
+| 404 | URL의 GitHub ID·저장소 이름 오타, 또는 토큰이 이 저장소에 접근 못 함 |
+| 422 | Request body 오타 (`ref`가 `main`인지, `mode` 값 확인) |
+
+### 5-5. GitHub 자체 예약 끄기
+
+cron-job.org가 잘 되면 `coach.yml`에서 `schedule:` 부분을 지워 알림이 두 번 오지 않게 합니다. 이 저장소의 [`bot/coach.yml`](bot/coach.yml)은 이미 `workflow_dispatch`만 남긴 최종본입니다.
+
+---
+
 ## 아침 준비도 판단 규칙
 
 | 경고 신호 | 기준 |
@@ -166,5 +242,6 @@ Slack에 "서브5 코치" 이름으로 메시지가 오면 성공입니다.
 | 맥에서 웹훅 전송 시 `CERTIFICATE_VERIFY_FAILED` | python.org에서 설치한 Python에 인증서 목록이 없음 | macOS 시스템 인증서(`/etc/ssl/cert.pem`) 사용 |
 | GitHub Actions에서 intervals.icu `403 Forbidden` | 요청에 프로그램 이름(User-Agent)이 없어 보안 장치가 차단 | `User-Agent` 헤더 추가 (`bot/coach.py`에 반영됨) |
 | 키를 넣기 전 실행에서도 `403` | Secret이 비어 있음 | `gh secret list`로 3개가 다 있는지 확인 |
-| 알림이 05:00보다 늦게 옴 | GitHub 예약 실행은 몇 분~수십 분 늦을 수 있음 | 정상. 지난밤 데이터 동기화 시간을 버는 효과도 있음 |
+| 알림이 몇 시간씩 늦게 옴 | GitHub 자체 예약(schedule)은 정각 실행을 보장하지 않음 (실제 3시간 38분~6시간 41분 지연) | cron-job.org로 정각에 실행 신호 보내기 (5단계) |
+| 알림이 안 온 날 | cron-job.org 신호 실패 또는 토큰 만료 | cron-job.org 예약의 History에서 응답 코드 확인 (204가 정상) |
 | 새벽 5시에 HRV가 비어 있음 | 워치가 아직 휴대폰과 동기화 안 됨 | ⏳ 안내가 오면 Garmin Connect 앱을 열어 동기화 |

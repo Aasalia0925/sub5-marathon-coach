@@ -1,9 +1,8 @@
 name: 서브5 코치 알림
 
 on:
-  schedule:
-    - cron: "0 20 * * *"   # 매일 05:00 KST (UTC 20:00) 아침 준비도
-    - cron: "0 11 * * 0"   # 일요일 20:00 KST (UTC 11:00) 주간 리포트
+  # 실행은 cron-job.org가 정각에 workflow_dispatch로 보냄 (아침 준비도 매일, 주간 리포트 일요일 20:00 KST)
+  # GitHub 자체 예약(schedule)은 몇 시간씩 늦어서 쓰지 않음
   workflow_dispatch:
     inputs:
       mode:

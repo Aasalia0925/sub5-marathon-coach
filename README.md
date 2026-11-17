@@ -19,7 +19,8 @@ flowchart LR
     GC -- 동기화 --> W
     C -- 대시보드 --> D[웹 대시보드]
     S[매주 일요일 20시<br/>계획 조정] --> C
-    GA[GitHub Actions<br/>매일 05시 · 일요일 20시] -- 읽기 --> I
+    CJ[cron-job.org<br/>매일 05시 · 일요일 20시] -- 정각 신호 --> GA[GitHub Actions]
+    GA -- 읽기 --> I
     GA -- 웹훅 --> SL[Slack 봇]
     SL -- 푸시 알림 --> P[휴대폰]
 ```
@@ -32,7 +33,7 @@ flowchart LR
 | 4. 전송 | 러닝 운동을 intervals.icu 운동 문법(단계별)으로 캘린더에 넣으면, Garmin 워치에서 단계별 안내를 받을 수 있습니다. |
 | 5. 시각화 | 분석 결과와 계획을 한눈에 보는 웹 대시보드를 만듭니다. |
 | 6. 자동 조정 | 매주 일요일 저녁, 지난주 실제 데이터를 보고 다음 주 계획을 줄이거나 그대로 둡니다. |
-| 7. 알림 | 매일 아침 "오늘 뛰어도 되는지"와 일요일 주간 리포트가 Slack 봇으로 휴대폰에 옵니다. 맥이 꺼져 있어도 GitHub Actions에서 실행됩니다. |
+| 7. 알림 | 매일 아침 "오늘 뛰어도 되는지"와 일요일 주간 리포트가 Slack 봇으로 휴대폰에 옵니다. 맥이 꺼져 있어도 GitHub Actions에서 실행되고, cron-job.org가 정각에 실행 신호를 보냅니다. |
 
 ---
 
@@ -46,7 +47,8 @@ flowchart LR
 | intervals.icu MCP 서버 | Claude가 intervals.icu를 읽고 쓰게 해 주는 연결 도구 | 무료(커뮤니티) |
 | (선택) Claude in Chrome | Garmin Connect 화면 확인용 | 무료 |
 | Slack + Slack 앱(Incoming Webhook) | 휴대폰 알림 | 무료 |
-| GitHub 비공개 저장소 + Actions | 맥 없이 정해진 시간에 알림 실행 | 무료 사용량 안 |
+| GitHub 비공개 저장소 + Actions | 맥 없이 알림 실행 | 무료 사용량 안 |
+| [cron-job.org](https://cron-job.org) | 정각에 GitHub 실행 신호 보내기 | 무료 |
 
 ---
 
@@ -100,6 +102,7 @@ flowchart LR
 | 10 | Slack 알림 | Slack 앱(봇) + 웹훅으로 아침 준비도·주간 리포트 |
 | 11 | 맥 없이 돌리기 | GitHub Actions(비공개 저장소)로 알림 이전 |
 | 12 | GitHub에 정리 | 이 저장소 |
+| 13 | 알림 시간 맞추기 | GitHub 예약이 몇 시간씩 늦어서 cron-job.org로 정각 실행 |
 
 ---
 
@@ -181,8 +184,8 @@ Cooldown
 
 | 하는 일 | 시간 (한국) | 어디서 | 맥 필요 |
 |---|---|---|---|
-| ☀️ 아침 준비도 알림 | 매일 05:00 전후 | GitHub Actions → Slack 봇 | ❌ |
-| 📋 주간 리포트 | 일요일 20:00 전후 | GitHub Actions → Slack 봇 | ❌ |
+| ☀️ 아침 준비도 알림 | 매일 05:00 | cron-job.org → GitHub Actions → Slack 봇 | ❌ |
+| 📋 주간 리포트 | 일요일 20:00 | cron-job.org → GitHub Actions → Slack 봇 | ❌ |
 | 🛠 다음 주 계획 조정 | 일요일 20:00 | 맥의 Claude 예약 작업 | ⭕ (꺼져 있으면 켤 때 실행) |
 | 계획 운동 → 워치 | 수시 | intervals.icu → Garmin | ❌ |
 
@@ -235,6 +238,7 @@ Claude 데스크톱 앱의 **예약 작업(Scheduled)** 기능으로 매주 일�
 | Slack DM은 왔는데 알림이 안 울림 | Claude의 Slack 연결은 내 계정으로 보냄 → 나에게 보낸 메시지 | Slack 앱(봇) 웹훅으로 보내기 |
 | 맥이 꺼져 있으면 알림이 안 옴 | 예약 작업이 맥의 Claude 앱 안에서 돔 | 알림은 GitHub Actions로 이전 |
 | GitHub Actions에서 intervals.icu `403` | 요청에 User-Agent가 없어 차단 | User-Agent 헤더 추가 |
+| 05:00 알림이 08:38, 11:41에 옴 | GitHub 자체 예약은 몇 시간씩 늦게 실행될 수 있음 | cron-job.org가 정각에 실행 신호 |
 
 ---
 
@@ -245,7 +249,7 @@ Claude 데스크톱 앱의 **예약 작업(Scheduled)** 기능으로 매주 일�
 | [README.md](README.md) | 전체 개요 (이 문서) |
 | [PROMPTS.md](PROMPTS.md) | 실제로 쓴 프롬프트 모음. 복사해서 바로 쓸 수 있게 정리 |
 | [WORKOUT_SYNTAX.md](WORKOUT_SYNTAX.md) | intervals.icu 운동 문법과 운동 템플릿 |
-| [SLACK_BOT.md](SLACK_BOT.md) | Slack 봇 만들기, GitHub Actions로 맥 없이 알림 보내기 |
+| [SLACK_BOT.md](SLACK_BOT.md) | Slack 봇 만들기, GitHub Actions로 맥 없이 알림 보내기, cron-job.org로 정각 실행 |
 | [bot/](bot/) | 알림 봇 코드(`coach.py`)와 GitHub Actions 설정(`coach.yml`). 비밀 값 없음 |
 | [REELS_SCRIPT.md](REELS_SCRIPT.md) | 인스타그램 릴스용 60초 대본과 촬영 목록 |
 
